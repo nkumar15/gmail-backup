@@ -112,7 +112,28 @@ func main() {
 	}
 
 	user := "me"
-	listMessages(srv, user)
+	var option string
+	fmt.Println("Enter options")
+	fmt.Println("1. List messages")
+	fmt.Println("2. Display profile")
+	fmt.Println("3. List Drafts")
+
+	if _, err := fmt.Scan(&option); err != nil {
+		log.Fatal("Unable to read option")
+		return
+	}
+
+	switch option {
+	case "1":
+		listMessages(srv, user)
+	case "2":
+		getProfile(srv, user)
+	case "3":
+		listDrafts(srv, user)
+	default:
+		fmt.Println("Invalid option")
+	}
+
 }
 
 func listMessages(srv *gmail.Service, user string) {
@@ -240,5 +261,119 @@ func saveAttachment(srv *gmail.Service, user, msgId, attachId, filename string) 
 	defer f.Close()
 
 	return err
+
+}
+
+func getProfile(srv *gmail.Service, user string) {
+
+	profile, err := srv.Users.GetProfile(user).Do()
+	if err != nil {
+		log.Fatal("Cannot retrieve profile")
+		return
+	}
+
+	fmt.Println(profile.EmailAddress)
+	fmt.Println(profile.MessagesTotal)
+	fmt.Println(profile.ThreadsTotal)
+	fmt.Println(profile.HistoryId)
+
+}
+
+func listDrafts(srv *gmail.Service, user string) {
+	drafts, err := srv.Users.Drafts.List(user).Do()
+
+	if err != nil {
+		log.Fatalf("Unable to retrieve message ids. %v", err)
+	}
+
+	if len(drafts.Drafts) > 0 {
+		fmt.Print("Drafts:\n")
+		for _, d := range drafts.Drafts {
+			fmt.Printf("- %s\n", d.Id)
+
+		}
+	} else {
+		fmt.Print("No draft found.")
+		return
+	}
+
+	fmt.Println("Enter draft id: ")
+	var draftId string
+	if _, err := fmt.Scan(&draftId); err != nil {
+		log.Fatalf("Unable to read msg id %v", err)
+	}
+
+	getDraft(srv, user, draftId)
+
+}
+
+func getDraft(srv *gmail.Service, user string, draftId string) {
+
+	draft, err := srv.Users.Drafts.Get(user, draftId).Do()
+
+	if err != nil {
+		log.Fatalf("Unable to retrieve draft. %v", err)
+		return
+	}
+
+	fmt.Println("Draft Metadata and Headers:")
+	fmt.Println("*********************************************")
+	fmt.Println("Draft Id:", draft.Id)
+	fmt.Println("Thread Id:", draft.Message.ThreadId)
+	fmt.Println("History Id:", draft.Message.HistoryId)
+
+	fmt.Println("Internal Date:", draft.Message.InternalDate)
+	fmt.Println("Size Estimate:", draft.Message.SizeEstimate)
+
+	fmt.Println()
+	fmt.Println()
+
+	for _, header := range draft.Message.Payload.Headers {
+		fmt.Println(header.Name, ":", header.Value)
+	}
+
+	fmt.Println()
+	fmt.Println()
+
+	listLabels(draft.Message.LabelIds)
+	fmt.Println("*********************************************")
+
+	fmt.Println()
+	fmt.Println()
+
+	fmt.Println("Message snippet:")
+	fmt.Println(draft.Message.Snippet)
+	fmt.Println()
+	fmt.Println()
+
+	fmt.Println("Body of draft")
+	for _, part := range draft.Message.Payload.Parts {
+
+		if part.MimeType == "text/html" {
+			data, _ := base64.RawURLEncoding.DecodeString(part.Body.Data)
+			html := string(data)
+			fmt.Println(html)
+		}
+	}
+	fmt.Println()
+	fmt.Println()
+	fmt.Println("Attachments:")
+	for _, part := range draft.Message.Payload.Parts {
+
+		if part.MimeType == "application/octet-stream" {
+			fmt.Println("Filename: ", part.Filename)
+			fmt.Println("Id: ", part.Body.AttachmentId)
+			fmt.Println("Attachment size: ", part.Body.Size)
+			err := saveAttachment(srv, user, draft.Id, part.Body.AttachmentId, part.Filename)
+			if err != nil {
+				log.Fatal("Could not save attachment.")
+			} else {
+				fmt.Println("Attachment downloaded")
+			}
+
+		}
+	}
+
+	fmt.Println("*********************************************")
 
 }
